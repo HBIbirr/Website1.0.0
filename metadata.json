@@ -1,0 +1,9 @@
+
+{
+  "name": "HBIbirr 的空间",
+  "description": "HBIbirr 的动态个人网站，包含创意动态、资源库以及访客许愿墙互动功能。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
