@@ -1,3 +1,4 @@
+import { supabase } from './supabaseClient';
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import PostCard from './components/PostCard';
@@ -40,7 +41,23 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   
   // --- 状态初始化 ---
-  const [currentUser, setCurrentUser] = useState<User | null>(() => JSON.parse(localStorage.getItem('artsy_user') || 'null'));
+// --- 新的代码开始 ---
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    // 1. 初始化：看看现在有没有登录
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    // 2. 监听：一旦登录或退出，自动更新状态
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+  // --- 新的代码结束 ---
   const [users, setUsers] = useState<User[]>(() => JSON.parse(localStorage.getItem('artsy_users') || '[{"id":"1","username":"admin","password":"admin","role":"admin"}]'));
   const [invitationCodes, setInvitationCodes] = useState<InvitationCode[]>(() => JSON.parse(localStorage.getItem('artsy_invite_codes') || '[]'));
   
@@ -82,7 +99,7 @@ const App: React.FC = () => {
   }, []);
 
   const showToast = (msg: string, type: 'success' | 'info' | 'error' = 'success') => setToast({ msg, type });
-  const isAdmin = currentUser?.role === 'admin';
+ const isAdmin = currentUser?.email === '2654540792@qq.com';
 
   // --- 核心动作处理器 ---
 
@@ -172,9 +189,8 @@ const App: React.FC = () => {
     setPosts(prev => prev.map(p => String(p.id) === String(id) ? { ...p, isHidden: !p.isHidden } : p));
   }, [isAdmin]);
 
-  const logout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('artsy_user');
+  const logout = async () => {
+    await supabase.auth.signOut();
     showToast('已安全退出', 'info');
   };
 
