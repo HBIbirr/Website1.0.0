@@ -122,7 +122,7 @@ const App: React.FC = () => {
   // 管理员判断
 // 🔴 这里的逻辑是：如果用户名的虚拟邮箱是 'admin@hbibirr.com'，那就是管理员
   // 所以，请你去注册一个用户名为 "admin" 的账号，那个账号就是超级管理员！
-  const isAdmin = currentUser?.email === 'HBIbirr@hbibirr.com';
+  const isAdmin = currentUser?.email === 'admin@hbibirr.com';
 
   // --- 核心动作处理器 ---
 
