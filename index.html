@@ -5,17 +5,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HBIbirr 的创意世界</title>
+    <!-- 使用 Tailwind 官方 CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <!-- 切换 Google Fonts 为国内加速镜像 -->
+    <link rel="preconnect" href="https://fonts.loli.net">
+    <link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+    <link href="https://fonts.loli.net/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Inter', "Microsoft YaHei", sans-serif;
+            font-family: 'Inter', "Microsoft YaHei", "PingFang SC", sans-serif;
             scroll-behavior: smooth;
         }
         .font-serif {
-            font-family: 'Playfair+Display', "STKaiti", serif;
+            font-family: 'Playfair+Display', "STKaiti", "SimKaiti", serif;
         }
         .glass {
             background: rgba(255, 255, 255, 0.7);
@@ -25,6 +27,29 @@
         .gradient-bg {
             background: radial-gradient(circle at top left, #fdf2f8, #f5f3ff, #ecfeff);
         }
+        
+        @keyframes heart-pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.4); }
+            100% { transform: scale(1.1); }
+        }
+        .animate-heart-pop {
+            animation: heart-pop 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes particle-up {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-20px) scale(0); opacity: 0; }
+        }
+        .like-particle {
+            position: absolute;
+            pointer-events: none;
+            animation: particle-up 0.6s ease-out forwards;
+        }
+        
+        /* 隐藏滚动条但保留功能 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 <script type="importmap">
 {
@@ -38,8 +63,9 @@
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
-<body class="gradient-bg min-h-screen">
+<body class="gradient-bg min-h-screen text-gray-900">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
 </body>
