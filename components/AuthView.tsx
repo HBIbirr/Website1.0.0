@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { ICONS } from '../constants';
 
+// 定义组件接收的参数类型
 interface AuthViewProps {
   onLogin: (user: any) => void;
-  // 保留旧props防止报错，但不再使用
-  users?: any[];
-  onRegister?: any;
 }
 
-const AuthView: React.FC<AuthViewProps> = () => {
+const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +16,10 @@ const AuthView: React.FC<AuthViewProps> = () => {
   const [msg, setMsg] = useState('');
 
   // 🪄 核心魔术：自动给用户名加上后缀，伪装成邮箱
-  const getVirtualEmail = (name: string) => `${name}@hbibirr.com`;
+  // 例如输入 "admin" -> 自动变成 "admin@hbibirr.com"
+  const getVirtualEmail = (name: string) => {
+    return `${name.trim()}@hbibirr.com`;
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,21 +30,28 @@ const AuthView: React.FC<AuthViewProps> = () => {
       const virtualEmail = getVirtualEmail(username);
 
       if (isLogin) {
-        // --- 登录逻辑 (不需要邀请码) ---
-        const { error } = await supabase.auth.signInWithPassword({
+        // --- 🟢 登录逻辑 (不需要邀请码) ---
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: virtualEmail,
           password: password,
         });
+
         if (error) throw error;
-        // 登录成功会自动跳转
+        
+        // 登录成功，通知父组件 (虽然 App.tsx 有监听，但这里调用更稳妥)
+        if (data.user) {
+           onLogin(data.user);
+        }
+        
       } else {
-        // --- 注册逻辑 (必须校验邀请码) ---
+        // --- 🔵 注册逻辑 (必须校验邀请码) ---
         
         // 1. 先去数据库查邀请码对不对
+        // 注意：inviteCode 表名必须和数据库一致 (invitation_codes)
         const { data: codeData, error: codeError } = await supabase
           .from('invitation_codes')
           .select('*')
-          .eq('code', inviteCode.toUpperCase()) // 自动转大写
+          .eq('code', inviteCode.trim().toUpperCase()) // 自动转大写
           .eq('is_used', false) // 必须是没用过的
           .single();
 
@@ -52,39 +60,45 @@ const AuthView: React.FC<AuthViewProps> = () => {
         }
 
         // 2. 邀请码有效，开始注册 Supabase 账号
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: virtualEmail,
           password: password,
           options: {
-            data: { username: username } // 把纯用户名存到 metadata 里
+            data: { username: username.trim() } // 把纯用户名存到 metadata 里
           }
         });
 
         if (signUpError) throw signUpError;
 
         // 3. 注册成功后，把邀请码标记为“已使用”
-        await supabase
-          .from('invitation_codes')
-          .update({ is_used: true, used_by: username })
-          .eq('id', codeData.id);
+        if (codeData) {
+            await supabase
+            .from('invitation_codes')
+            .update({ is_used: true, used_by: username.trim() })
+            .eq('id', codeData.id);
+        }
 
         setMsg('注册成功！正在自动登录...');
         
         // 4. 注册后尝试自动登录一下
-        await supabase.auth.signInWithPassword({
+        const { data: loginData } = await supabase.auth.signInWithPassword({
             email: virtualEmail,
             password: password,
         });
+        
+        if (loginData.user) {
+            onLogin(loginData.user);
+        }
       }
     } catch (error: any) {
-      console.error(error);
+      console.error('Auth Error:', error);
       // 翻译一些常见的 Supabase 错误
-      if (error.message.includes('User already registered')) {
+      if (error.message.includes('User already registered') || error.message.includes('duplicate key')) {
         setMsg('该用户名已被注册，请换一个');
       } else if (error.message.includes('Invalid login credentials')) {
         setMsg('用户名或密码错误');
       } else {
-        setMsg(error.message || '操作失败');
+        setMsg(error.message || '操作失败，请重试');
       }
     } finally {
       setLoading(false);
@@ -96,6 +110,7 @@ const AuthView: React.FC<AuthViewProps> = () => {
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white mb-4">
+            {/* 如果 ICONS 报错，可以把这里改成普通的文字或 emoji，例如 <span>✨</span> */}
             <ICONS.Sparkles />
           </div>
           <h2 className="text-2xl font-bold text-gray-900">{isLogin ? '欢迎回来' : '使用邀请码加入'}</h2>
@@ -144,7 +159,12 @@ const AuthView: React.FC<AuthViewProps> = () => {
             </div>
           )}
 
-          {msg && <div className={`text-xs text-center p-2 rounded-lg ${msg.includes('成功') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>{msg}</div>}
+          {/* 错误/成功提示信息 */}
+          {msg && (
+            <div className={`text-xs text-center p-2 rounded-lg ${msg.includes('成功') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
+              {msg}
+            </div>
+          )}
 
           <button 
             disabled={loading}
@@ -156,6 +176,7 @@ const AuthView: React.FC<AuthViewProps> = () => {
 
         <div className="mt-8 text-center">
           <button 
+            type="button"
             onClick={() => { setIsLogin(!isLogin); setMsg(''); }}
             className="text-xs text-gray-400 hover:text-indigo-600 font-bold transition-colors"
           >
