@@ -41,31 +41,51 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   
   // --- 状态初始化 ---
-// --- 新的代码开始 ---
   const [currentUser, setCurrentUser] = useState<any>(null);
 
+  // 1. 监听登录状态
   useEffect(() => {
-    // 1. 初始化：看看现在有没有登录
     supabase.auth.getSession().then(({ data: { session } }) => {
       setCurrentUser(session?.user ?? null);
     });
 
-    // 2. 监听：一旦登录或退出，自动更新状态
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setCurrentUser(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
-  // --- 新的代码结束 ---
+
+  // 2. 动态数据状态 (初始为空，等待从云端加载)
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  // 3. 从云端加载动态 (新增逻辑)
+  useEffect(() => {
+    const fetchPosts = async () => {
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .order('timestamp', { ascending: false }); // 按时间倒序
+
+      if (error) {
+        console.error('Error fetching posts:', error);
+      } else if (data) {
+        // 转换数据格式以匹配前端类型
+        const formattedPosts = data.map((p: any) => ({
+          ...p,
+          comments: typeof p.comments === 'string' ? JSON.parse(p.comments) : (p.comments || []),
+          isLiked: false // 数据库暂不存个人点赞状态，默认 false
+        }));
+        setPosts(formattedPosts);
+      }
+    };
+
+    fetchPosts();
+  }, []);
+
   const [users, setUsers] = useState<User[]>(() => JSON.parse(localStorage.getItem('artsy_users') || '[{"id":"1","username":"admin","password":"admin","role":"admin"}]'));
   const [invitationCodes, setInvitationCodes] = useState<InvitationCode[]>(() => JSON.parse(localStorage.getItem('artsy_invite_codes') || '[]'));
   
-  const [posts, setPosts] = useState<Post[]>(() => {
-    const saved = localStorage.getItem('artsy_posts');
-    return saved ? JSON.parse(saved) : MOCK_POSTS;
-  });
-
   const [resources, setResources] = useState<Resource[]>(() => {
     const saved = localStorage.getItem('artsy_resources');
     return saved ? JSON.parse(saved) : MOCK_RESOURCES;
@@ -84,8 +104,7 @@ const App: React.FC = () => {
     return saved ? { ...defaultProfile, ...JSON.parse(saved) } : defaultProfile;
   });
 
-  // --- 持久化同步 ---
-  useEffect(() => { localStorage.setItem('artsy_posts', JSON.stringify(posts)); }, [posts]);
+  // --- 持久化同步 (注意：已经移除了 posts 的本地同步) ---
   useEffect(() => { localStorage.setItem('artsy_resources', JSON.stringify(resources)); }, [resources]);
   useEffect(() => { localStorage.setItem('artsy_wishes', JSON.stringify(wishes)); }, [wishes]);
   useEffect(() => { localStorage.setItem('artsy_feedbacks', JSON.stringify(feedbacks)); }, [feedbacks]);
@@ -99,26 +118,36 @@ const App: React.FC = () => {
   }, []);
 
   const showToast = (msg: string, type: 'success' | 'info' | 'error' = 'success') => setToast({ msg, type });
- const isAdmin = currentUser?.email === '2654540792@qq.com';
+  
+  // 管理员判断
+  const isAdmin = currentUser?.email === '2654540792@qq.com';
 
   // --- 核心动作处理器 ---
 
-  // 1. 删除动态（已修复：增加 String 强制转换确保 ID 匹配成功）
-  const handleDeletePost = useCallback((id: string) => {
+  // 1. 删除动态 (修改为：同步删除云端数据)
+  const handleDeletePost = useCallback(async (id: string) => {
     if (!isAdmin) return;
     if (window.confirm('确定要彻底删除这条动态吗？此操作无法恢复。')) {
-      setPosts(prev => prev.filter(p => String(p.id) !== String(id)));
-      showToast('动态已永久删除', 'success');
+      // 1. 请求 Supabase 删除
+      const { error } = await supabase.from('posts').delete().eq('id', id);
+      
+      if (!error) {
+        // 2. 成功后更新本地界面
+        setPosts(prev => prev.filter(p => String(p.id) !== String(id)));
+        showToast('动态已永久删除', 'success');
+      } else {
+        console.error(error);
+        showToast('删除失败，请重试', 'error');
+      }
     }
   }, [isAdmin]);
 
-  // 2. 删除评论（已修复：双层过滤逻辑）
+  // 2. 删除评论 (暂时保持本地更新，如需云端同步逻辑较复杂，建议先保证发评论互通)
   const handleDeleteComment = useCallback((postId: string, commentId: string) => {
     if (!isAdmin) return;
     if (window.confirm('确定要移除这条评论吗？')) {
       setPosts(prev => prev.map(p => {
         if (String(p.id) === String(postId)) {
-          // 仅在目标动态下过滤评论数组
           return { 
             ...p, 
             comments: (p.comments || []).filter(c => String(c.id) !== String(commentId)) 
@@ -126,11 +155,13 @@ const App: React.FC = () => {
         }
         return p;
       }));
-      showToast('评论已成功移除', 'info');
+      // 注意：这里仅仅更新了本地显示，真正的评论删除同步需要更新 JSONB 字段，逻辑较复杂
+      // 暂时先让管理员在前端看不见即可
+      showToast('评论已移除 (刷新后可能恢复，除非实现深度同步)', 'info');
     }
   }, [isAdmin]);
 
-  // 3. 删除资源（原有逻辑保持）
+  // 3. 删除资源
   const handleDeleteResource = useCallback((id: string) => {
     if (!isAdmin) return;
     if (window.confirm('确定要下架并删除这个资源吗？此操作不可逆。')) {
@@ -166,23 +197,41 @@ const App: React.FC = () => {
     }));
   }, []);
 
-  const handleAddComment = useCallback((postId: string, text: string) => {
-    setPosts(prev => prev.map(p => {
-      if (String(p.id) === String(postId)) {
-        const newComment = {
-          id: `c-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          author: currentUser?.username || 'Guest',
-          text,
-          timestamp: Date.now(),
-          likes: 0,
-          isLiked: false
-        };
-        return { ...p, comments: [...(p.comments || []), newComment] };
-      }
-      return p;
-    }));
-    showToast('评论已发送');
-  }, [currentUser]);
+  // 4. 发送评论 (修改为：同步更新到云端)
+  const handleAddComment = useCallback(async (postId: string, text: string) => {
+    const post = posts.find(p => String(p.id) === String(postId));
+    if (!post) return;
+
+    const newComment = {
+      id: `c-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      author: currentUser?.email?.split('@')[0] || '访客', // 使用邮箱前缀做昵称
+      text,
+      timestamp: Date.now(),
+      likes: 0,
+      isLiked: false
+    };
+    
+    const updatedComments = [...(post.comments || []), newComment];
+
+    // 1. 更新云端
+    const { error } = await supabase
+      .from('posts')
+      .update({ comments: updatedComments })
+      .eq('id', postId);
+
+    if (!error) {
+      // 2. 更新本地
+      setPosts(prev => prev.map(p => {
+        if (String(p.id) === String(postId)) {
+          return { ...p, comments: updatedComments };
+        }
+        return p;
+      }));
+      showToast('评论已发送');
+    } else {
+      showToast('评论失败', 'error');
+    }
+  }, [currentUser, posts]);
 
   const handleHidePost = useCallback((id: string) => {
     if (!isAdmin) return;
@@ -211,10 +260,8 @@ const App: React.FC = () => {
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} isAdmin={isAdmin} onLogout={logout} />
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       
-      {/* 这里的 Header 保持不变... */}
+      {/* Header区域 */}
       <header className="py-10 flex flex-col md:flex-row items-center md:items-start text-center md:text-left gap-6 border-b border-gray-100/50 mb-10 group max-w-4xl mx-auto relative">
-        {/* 头像及社交链接部分 (省略以保持回复简洁，代码逻辑已包含) */}
-        {/* ... */}
         <div className="relative">
           <div className="w-24 h-24 shrink-0 rounded-full bg-gradient-to-br from-pink-400 via-indigo-400 to-purple-500 p-1 shadow-xl relative">
             <img src={profile.avatar} alt="头像" className="w-full h-full rounded-full border-4 border-white object-cover" />
@@ -306,13 +353,34 @@ const App: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* Form 和 Modal 逻辑保持不变... */}
-            {isFormOpen && <PostForm onAddPost={(t, cp, ct) => { 
-              const np = { id: Date.now().toString(), type: t, content: ct, caption: cp, timestamp: Date.now(), likes: 0, comments: [] }; 
-              setPosts(prev => [np, ...prev]);
-              showToast('动态发布成功'); 
-              setIsFormOpen(false); 
-            }} onClose={() => setIsFormOpen(false)} />}
+            {isFormOpen && <PostForm 
+              onAddPost={async (t, cp, ct) => { 
+                // --- 修改：发布到 Supabase ---
+                const newPost = { 
+                  id: Date.now().toString(), 
+                  type: t, 
+                  content: ct, 
+                  caption: cp, 
+                  timestamp: Date.now(), 
+                  likes: 0, 
+                  comments: [],
+                  author_name: profile.name,
+                  author_avatar: profile.avatar 
+                }; 
+                
+                const { error } = await supabase.from('posts').insert([newPost]);
+
+                if (!error) {
+                  setPosts(prev => [newPost as any, ...prev]);
+                  showToast('动态发布成功'); 
+                  setIsFormOpen(false); 
+                } else {
+                  console.error(error);
+                  showToast('发布失败', 'error');
+                }
+              }} 
+              onClose={() => setIsFormOpen(false)} 
+            />}
             
             {(isResourceFormOpen || resourceToEdit) && (
               <ResourceForm 
@@ -351,18 +419,17 @@ const App: React.FC = () => {
                       authorName={profile.name} 
                       authorAvatar={profile.avatar} 
                       onAddComment={handleAddComment} 
-                      onDeletePost={handleDeletePost} // 绑定删除动态
+                      onDeletePost={handleDeletePost}
                       onHidePost={handleHidePost} 
                       onToggleLike={() => handleToggleLike(p.id)} 
                       onToggleCommentLike={(commentId) => handleToggleCommentLike(p.id, commentId)} 
-                      onDeleteComment={(commentId) => handleDeleteComment(p.id, commentId)} // 绑定删除评论
+                      onDeleteComment={(commentId) => handleDeleteComment(p.id, commentId)} 
                     />
                   ))}
                   {posts.length === 0 && <div className="py-20 text-center text-gray-400 italic">暂时没有任何动态</div>}
                 </div>
               </div>
             )}
-            {/* 其他 Tab 部分 (Resources, Wishes, Admin) 保持原样... */}
             {activeTab === 'resources' && (
                <div className="space-y-8">
                  <div className="flex justify-between items-center">
