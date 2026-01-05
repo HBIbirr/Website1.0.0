@@ -1,3 +1,4 @@
+
 {
   "build": {
     "command": "npm install && npm run build"
@@ -5,5 +6,8 @@
   "deploy": {
     "start_command": "npm run start",
     "output_directory": "dist"
+  },
+  "docker": {
+    "image": "node:18-slim"
   }
 }
